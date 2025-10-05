@@ -1,7 +1,7 @@
 plugins {
     id 'java'
     id 'org.springframework.boot' version '3.5.5'
-    id 'io.spring.dependency-management' version '1.1.6'
+    id 'io.spring.dependency-management' version '1.1.7'
 }
 
 java {
@@ -14,21 +14,40 @@ version = '0.1.0'
 repositories { mavenCentral() }
 
 dependencies {
+    // Reactive web + WS
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+    // Redis (reactive Lettuce)
     implementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive'
+
+    // Reactive Postgres (R2DBC) + pool
     implementation 'org.springframework.boot:spring-boot-starter-data-r2dbc'
+    implementation 'io.r2dbc:r2dbc-pool'                 // version managed by Boot
+
+    // DB migrations via JDBC (Flyway)
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.flywaydb:flyway-database-postgresql'
-    // R2DBC PostgreSQL driver
-    implementation 'org.postgresql:r2dbc-postgresql:1.0.7.RELEASE' // Reactive driver
-    implementation 'io.r2dbc:r2dbc-pool:1.0.2.RELEASE'
+    runtimeOnly   'org.postgresql:postgresql'             // JDBC driver for Flyway
+
+    // Bean validation
     implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // Lombok
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 
-    runtimeOnly 'org.postgresql:postgresql'
+    // Metadata for @ConfigurationProperties
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+
+    // Tests
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'io.projectreactor:reactor-test'
+    // Integration tests with containers (optional but recommended)
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
+    testImplementation 'org.testcontainers:redis'
 }
 
-tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

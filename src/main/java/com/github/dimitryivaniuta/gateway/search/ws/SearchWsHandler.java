@@ -1,65 +1,98 @@
 package com.github.dimitryivaniuta.gateway.search.ws;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.dimitryivaniuta.gateway.search.api.dto.SearchResult;
+import com.github.dimitryivaniuta.gateway.search.config.SearchProps;
 import com.github.dimitryivaniuta.gateway.search.service.SearchService;
-import io.netty.handler.codec.http.websocketx.extensions.WebSocketExtension;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.reactive.socket.*;
+import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class SearchWsHandler implements WebSocketHandler {
 
-    private final SearchService searchService;     // uses DbSearchService lookup()
+    private static final int BATCH_SIZE = 10;
+    private static final Duration BATCH_WINDOW = Duration.ofMillis(10);
+
+    private final SearchService searchService;
+    private final SearchProps props;          // provides debounceWindow(), maxResults(), etc.
     private final ObjectMapper mapper;
 
     @Override
     public Mono<Void> handle(WebSocketSession session) {
-        // userId extracted from query: /ws/search?userId=abc
-        String userId = session.getHandshakeInfo().getUri().getQuery();
-        userId = extractUserId(userId); // simple parser below
+        final String userId = extractUserId(session.getHandshakeInfo().getUri());
+        log.debug("WS connected userId={}", userId);
 
-        // 1) Inbound text → publish keystrokes
-        Mono<Void> inbound = session.receive()
-                .map(WebSocketMessage::getPayloadAsText)
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .doOnNext(term -> searchService.submitQuery(userId, term)) // Redis Pub/Sub
-                .then();
+        // Inbound: text frames -> trimmed terms -> publish to Redis Pub/Sub
+        Mono<Void> inbound =
+                session.receive()
+                        .map(WebSocketMessage::getPayloadAsText)
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .doOnNext(term -> searchService.submitQuery(userId, term))
+                        .onErrorResume(ex -> {
+                            log.warn("WS inbound error userId={}: {}", userId, ex.toString());
+                            return Mono.empty();
+                        })
+                        .then();
 
-        // 2) Outbound: subscribe to user's Pub/Sub channel → debounce → lookup → send JSON
-        Flux<WebSocketMessage> outbound = searchService.userQueryStream(userId)
-                .debounce(Duration.ofMillis(250))            // slightly tighter than SSE (UX snappy)
-                .switchMap(searchService::lookup)                   // cancels stale lookups
-                .onBackpressureLatest()                       // keep latest result set
-                .bufferTimeout(10, Duration.ofMillis(10))     // tiny batch to frame messages
-                .filter(list -> !list.isEmpty())
-                .map(list -> toJson(list))
-                .map(session::textMessage);
+        // Outbound: subscribe to user stream -> debounce via sampleTimeout -> lookup -> JSON
+        Flux<WebSocketMessage> outbound =
+                searchService.userQueryStream(userId)
+                        // Debounce semantics: emit the last term after the quiet period
+                        .sampleTimeout(q -> Mono.delay(props.debounceWindow()))
+                        // Cancel older lookups when a new term arrives
+                        .switchMap(searchService::lookup)
+                        // If client is slow, keep only the latest results
+                        .onBackpressureLatest()
+                        // Small batch to reduce frame overhead
+                        .bufferTimeout(BATCH_SIZE, BATCH_WINDOW)
+                        .filter(batch -> !batch.isEmpty())
+                        .map(this::toJson)
+                        .map(session::textMessage)
+                        .doOnError(ex -> log.warn("WS outbound error userId={}: {}", userId, ex.toString()))
+                        .doOnTerminate(() -> log.debug("WS outbound terminated userId={}", userId));
 
+        // Send results and consume inbound simultaneously
         return session.send(outbound)
-                .and(inbound); // run both directions
+                .and(inbound)
+                .doFinally(sig -> log.debug("WS disconnected userId={} signal={}", userId, sig));
     }
 
-    private String toJson(Object o) {
-        try { return mapper.writeValueAsString(o); }
-        catch (Exception e) { throw new RuntimeException(e); }
-    }
+    /* ---------------- helpers ---------------- */
 
-    private static String extractUserId(String q) {
-        if (q == null) throw new IllegalArgumentException("userId is required");
-        for (String part : q.split("&")) {
-            String[] kv = part.split("=", 2);
-            if (kv.length == 2 && kv[0].equals("userId") && !kv[1].isBlank()) return kv[1];
+    private String toJson(List<SearchResult> list) {
+        try {
+            return mapper.writeValueAsString(list);
+        } catch (Exception e) {
+            // Fail-soft: log and return empty array so client remains connected
+            log.warn("JSON serialization failed: {}", e.toString());
+            return "[]";
         }
-        throw new IllegalArgumentException("userId is required");
     }
 
-    @Override public List<WebSocketExtension> getSupportedExtensions() { return List.of(); }
+    private static String extractUserId(URI uri) {
+        MultiValueMap<String, String> q = UriComponentsBuilder.fromUri(uri).build().getQueryParams();
+        String id = q.getFirst("userId");
+        if (id == null || id.isBlank()) {
+            throw new IllegalArgumentException("userId is required in query, e.g. /ws/search?userId=u1");
+        }
+        return id;
+    }
+
+//    @Override
+//    public List<WebSocketExtension> getSupportedExtensions() {
+//        return List.of(); // no special extensions
+//    }
 }

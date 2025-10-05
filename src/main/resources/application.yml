@@ -34,3 +34,8 @@ management:
       exposure:
         include: health,info,metrics,prometheus
 
+app:
+  search:
+    debounce-window: 300ms
+    max-results: 20
+    fts-config: english
