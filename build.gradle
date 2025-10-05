@@ -33,6 +33,9 @@ dependencies {
     // Bean validation
     implementation 'org.springframework.boot:spring-boot-starter-validation'
 
+    // Actuator
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
     // Lombok
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
@@ -47,6 +50,7 @@ dependencies {
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
     testImplementation 'org.testcontainers:redis'
+
 }
 
 tasks.withType(JavaCompile).configureEach {

@@ -19,6 +19,7 @@ import java.io.Serializable;
 public record SearchResult(
         @JsonProperty("id")    Long id,
         @JsonProperty("title") String title,
+        @JsonProperty("description") String description,
         @JsonProperty("score") double score
 ) implements Serializable {
 
@@ -33,12 +34,12 @@ public record SearchResult(
     }
 
     /** Static factory for readability. */
-    public static SearchResult of(Long id, String title, double score) {
-        return new SearchResult(id, title, score);
+    public static SearchResult of(Long id, String title, String description, double score) {
+        return new SearchResult(id, title, description, score);
     }
 
     /** Convenient updater when only the score changes. */
     public SearchResult withScore(double newScore) {
-        return new SearchResult(this.id, this.title, newScore);
+        return new SearchResult(this.id, this.title, this.description, newScore);
     }
 }

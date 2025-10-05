@@ -25,4 +25,7 @@ public interface ProductSearchRepository {
      * NOTE: Paging in reactive land requires a separate count query.
      */
     Mono<Page<SearchResult>> searchPage(String term, Pageable pageable);
+
+    /** Case-insensitive substring search for very short terms (1 char). */
+    Flux<SearchResult> searchPrefixIgnoreCase(String term, int limit);
 }

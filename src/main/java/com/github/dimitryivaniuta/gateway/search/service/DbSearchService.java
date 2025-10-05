@@ -31,8 +31,30 @@ public class DbSearchService implements SearchService {
     public Flux<SearchResult> lookup(String term) {
         final String q = normalize(term);
         if (q.isEmpty()) return Flux.empty();
+
+        // 1 char -> prefix/substring search (ILIKE, case-insensitive)
+//        if (q.length() == 1) {
+//            return products.searchPrefixIgnoreCase(q, props.maxResults())
+//                    .doOnSubscribe(s ->
+//                            log.debug("lookup (ILIKE) term='{}' limit={}", q, props.maxResults()));
+//        }
+
         // Top-N ranked results via PostgreSQL FTS (GIN index over tsvector).
-        return products.searchTop(q, props.maxResults());
+        return products.searchTop(q, props.maxResults())
+                .doOnSubscribe(s -> log.debug("lookup term='{}' limit={}", q, props.maxResults()))
+                .doOnNext(r -> log.debug("result id={} title='{}' score={}", r.id(), r.title(), r.score()))
+                .doOnError(e -> log.warn("lookup failed term='{}': {}", q, e.toString()))
+                .doOnComplete(() -> log.debug("lookup complete term='{}'", q));
+    }
+
+    private static String lastPrefix(String q) {
+        if (q == null) return null;
+        String s = q.trim();
+        if (s.isEmpty()) return null;
+        // last “word-ish” token (letters/digits)
+        String[] parts = s.split("\\s+");
+        String last = parts[parts.length - 1].replaceAll("[^\\p{Alnum}]", "");
+        return last.isEmpty() ? null : (last + ":*");
     }
 
     private static String requireUser(String userId) {
