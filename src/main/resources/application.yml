@@ -1,0 +1,36 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: search-service
+  main:
+    web-application-type: reactive
+
+  # Reactive R2DBC for runtime
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:search}
+    username: ${DB_USER:search_user}
+    password: ${DB_PASSWORD:search_pass}
+
+  # Flyway via JDBC for migrations
+  flyway:
+    enabled: true
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:search}
+    user: ${DB_USER:search_user}
+    password: ${DB_PASSWORD:search_pass}
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  # Redis (reactive)
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+
