@@ -8,6 +8,7 @@ import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
@@ -24,11 +25,11 @@ import java.util.Objects;
  */
 @Repository
 @RequiredArgsConstructor
-class ProductSearchRepositoryImpl implements ProductSearchRepository {
+public class ProductSearchRepositoryImpl implements ProductSearchRepository {
 
     private static final String CFG = "english";
 
-    private final DatabaseClient client;
+    private final R2dbcEntityTemplate template;
 
     @Override
     public Flux<SearchResult> searchTop(String term, int limit) {
@@ -53,6 +54,7 @@ class ProductSearchRepositoryImpl implements ProductSearchRepository {
     }
 
     private Flux<SearchResult> doSearchRanked(String term, int limit, long offset) {
+        final DatabaseClient client = template.getDatabaseClient();
         // CTE binds the tsquery once; stable order by rank desc, then id asc.
         final String sql = """
                   with q as (select websearch_to_tsquery(:cfg, :term) as query)
@@ -74,6 +76,7 @@ class ProductSearchRepositoryImpl implements ProductSearchRepository {
     }
 
     private Mono<Long> countMatches(String term) {
+        final DatabaseClient client = template.getDatabaseClient();
         final String sql = """
                 with q as (select websearch_to_tsquery(:cfg, :term) as query)
                 select count(*) as cnt
@@ -92,7 +95,7 @@ class ProductSearchRepositoryImpl implements ProductSearchRepository {
         Long id = getRequired(row, "id", Long.class);
         String title = getRequired(row, "title", String.class);
         // score can be null in pathological cases; default to 0.0
-        Double score = getOptional(row, "score", Double.class);
+        Number score = getOptional(row, "score", Number.class);
         double s = score == null ? 0.0 : score.doubleValue();
         return new SearchResult(id, title, s);
     }
